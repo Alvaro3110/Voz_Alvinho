@@ -20,6 +20,7 @@ export function useAudioQueue({ onPlayStart, onPlayEnd }: UseAudioQueueOptions =
   const sourceQueueRef = useRef<AudioBufferSourceNode[]>([]);
   const nextStartTimeRef = useRef<number>(0);
   const isPlayingRef = useRef(false);
+  const generationRef = useRef(0);
 
   const getContext = useCallback(() => {
     if (!ctxRef.current || ctxRef.current.state === "closed") {
@@ -38,9 +39,11 @@ export function useAudioQueue({ onPlayStart, onPlayEnd }: UseAudioQueueOptions =
   const enqueue = useCallback(
     async (mp3Bytes: ArrayBuffer) => {
       const ctx = getContext();
+      const generation = generationRef.current;
 
       try {
         const audioBuffer = await ctx.decodeAudioData(mp3Bytes.slice(0));
+        if (generation !== generationRef.current) return;
 
         const source = ctx.createBufferSource();
         source.buffer = audioBuffer;
@@ -60,8 +63,9 @@ export function useAudioQueue({ onPlayStart, onPlayEnd }: UseAudioQueueOptions =
         }
 
         source.onended = () => {
+          if (generation !== generationRef.current) return;
           sourceQueueRef.current = sourceQueueRef.current.filter((s) => s !== source);
-          if (sourceQueueRef.current.length === 0) {
+          if (sourceQueueRef.current.length === 0 && isPlayingRef.current) {
             isPlayingRef.current = false;
             onPlayEnd?.();
           }
@@ -78,19 +82,26 @@ export function useAudioQueue({ onPlayStart, onPlayEnd }: UseAudioQueueOptions =
    * Called when the user interrupts the AI mid-speech.
    */
   const clear = useCallback(() => {
+    generationRef.current += 1;
+    const queuedSources = sourceQueueRef.current;
+    sourceQueueRef.current = [];
+    nextStartTimeRef.current = 0;
+
+    if (isPlayingRef.current) {
+      isPlayingRef.current = false;
+      onPlayEnd?.();
+    }
+
     // Stop all scheduled sources immediately
-    sourceQueueRef.current.forEach((source) => {
+    queuedSources.forEach((source) => {
       try {
+        source.onended = null;
         source.stop();
         source.disconnect();
       } catch {
         // Already stopped
       }
     });
-    sourceQueueRef.current = [];
-    nextStartTimeRef.current = 0;
-    isPlayingRef.current = false;
-    onPlayEnd?.();
   }, [onPlayEnd]);
 
   return { enqueue, clear, isPlaying: isPlayingRef };

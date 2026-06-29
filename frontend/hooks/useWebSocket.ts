@@ -80,7 +80,11 @@ export function useWebSocket({
 
   const sendAudio = useCallback((pcm16Bytes: Uint8Array) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(pcm16Bytes.buffer);
+      const payload = pcm16Bytes.buffer.slice(
+        pcm16Bytes.byteOffset,
+        pcm16Bytes.byteOffset + pcm16Bytes.byteLength
+      );
+      wsRef.current.send(payload);
     }
   }, []);
 

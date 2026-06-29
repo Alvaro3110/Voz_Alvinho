@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 
 // @ricky0123/vad-web loaded from CDN via useEffect
 type VADInstance = {
-  start: () => Promise<void>;
+  start: () => void;
   pause: () => void;
   destroy: () => void;
 };
@@ -21,7 +21,8 @@ interface UseVADOptions {
  * useVAD — integrates @ricky0123/vad-web (Silero ONNX) for local voice activity detection.
  *
  * Audio format output: Float32Array at 16kHz mono (VAD native format).
- * Converts to PCM16 Int16Array before calling onSpeechEnd for WebSocket transmission.
+ * The caller converts the final Float32Array segment to PCM16 bytes before
+ * WebSocket transmission.
  */
 export function useVAD({ onSpeechStart, onSpeechEnd, onError }: UseVADOptions = {}) {
   const [state, setState] = useState<VADState>("idle");
@@ -43,9 +44,7 @@ export function useVAD({ onSpeechStart, onSpeechEnd, onError }: UseVADOptions = 
         },
         onSpeechEnd: (audio: Float32Array) => {
           setState("listening");
-          // Convert Float32 → PCM16 for WebSocket transmission
-          const pcm16 = float32ToPCM16(audio);
-          onSpeechEnd?.(pcm16);
+          onSpeechEnd?.(audio);
         },
         onVADMisfire: () => {
           setState("listening");
@@ -87,21 +86,6 @@ export function useVAD({ onSpeechStart, onSpeechEnd, onError }: UseVADOptions = 
   }, []);
 
   return { state, start, stop, destroy };
-}
-
-/**
- * Convert Float32Array (range -1 to 1) to PCM16 Int16Array.
- * Silero VAD outputs Float32 at 16kHz mono — standard for AI audio models.
- */
-function float32ToPCM16(float32: Float32Array): Float32Array {
-  // Return as Float32Array wrapped PCM16 bytes for WS transmission
-  const int16 = new Int16Array(float32.length);
-  for (let i = 0; i < float32.length; i++) {
-    const s = Math.max(-1, Math.min(1, float32[i]));
-    int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-  }
-  // Return as the underlying buffer
-  return new Float32Array(int16.buffer);
 }
 
 /**
